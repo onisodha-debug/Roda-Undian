@@ -59,7 +59,6 @@
       align-items: center;
     }
 
-    /* Jarum Penunjuk */
     .pointer {
       position: absolute;
       top: -15px;
@@ -111,7 +110,7 @@
 
     textarea {
       width: 100%;
-      height: 110px;
+      height: 100px;
       padding: 12px;
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.2);
@@ -119,6 +118,11 @@
       color: #fff;
       resize: vertical;
       font-size: 0.95rem;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
     }
 
     button {
@@ -132,12 +136,23 @@
     }
 
     .btn-spin {
+      flex: 2;
       background-color: #2ed573;
       color: #1e1e2f;
     }
 
     .btn-spin:hover {
       background-color: #26af5f;
+    }
+
+    .btn-reset {
+      flex: 1;
+      background-color: #ff4757;
+      color: #fff;
+    }
+
+    .btn-reset:hover {
+      background-color: #ff6b81;
     }
 
     button:disabled {
@@ -159,9 +174,16 @@
       border: 1px solid #2ed573;
       border-radius: 8px;
       text-align: center;
-      font-size: 1.2rem;
+      font-size: 1.1rem;
       font-weight: bold;
       display: none;
+    }
+
+    .winner-name {
+      color: #eccc68;
+      font-size: 1.4rem;
+      display: block;
+      margin-top: 5px;
     }
   </style>
 </head>
@@ -176,16 +198,19 @@
     </div>
 
     <div class="controls">
-      <label for="categorySelect">Pilih Kategori Kategori:</label>
+      <label for="categorySelect">Pilih Kategori:</label>
       <select id="categorySelect">
         <option value="">-- Memuat Kategori... --</option>
       </select>
       <span id="statusText" class="status-text"></span>
 
-      <label for="itemsTextarea">Daftar Peserta (Otomatis terisi):</label>
+      <label for="itemsTextarea">Daftar Peserta Aktif:</label>
       <textarea id="itemsTextarea" placeholder="Pilih kategori di atas untuk memuat daftar peserta..."></textarea>
 
-      <button id="spinBtn" class="btn-spin" disabled>Putar Roda!</button>
+      <div class="btn-group">
+        <button id="spinBtn" class="btn-spin" disabled>Putar Roda!</button>
+        <button id="resetBtn" class="btn-reset" disabled>🔄 Reset Nama</button>
+      </div>
 
       <div id="result" class="result-popup"></div>
     </div>
@@ -199,6 +224,7 @@
     const categorySelect = document.getElementById('categorySelect');
     const itemsTextarea = document.getElementById('itemsTextarea');
     const spinBtn = document.getElementById('spinBtn');
+    const resetBtn = document.getElementById('resetBtn');
     const statusText = document.getElementById('statusText');
     const resultDiv = document.getElementById('result');
 
@@ -207,8 +233,9 @@
     let items = [];
     let currentRotation = 0;
     let isSpinning = false;
+    let currentCategory = '';
 
-    // 1. Muat Daftar Kategori (Tab) saat aplikasi dibuka
+    // 1. Muat Kategori
     async function loadCategories() {
       statusText.innerText = '⏳ Mengambil daftar kategori...';
       try {
@@ -229,17 +256,21 @@
       }
     }
 
-    // 2. Muat Nama Peserta saat Kategori Dipilih
+    // 2. Muat Data Peserta dari Google Sheets
     async function loadCategoryItems(category) {
       if (!category) {
         itemsTextarea.value = '';
+        currentCategory = '';
         drawWheel();
         spinBtn.disabled = true;
+        resetBtn.disabled = true;
         return;
       }
 
-      statusText.innerText = `⏳ Memuat peserta kategori "${category}"...`;
+      currentCategory = category;
+      statusText.innerText = `⏳ Memuat data "${category}"...`;
       spinBtn.disabled = true;
+      resetBtn.disabled = true;
 
       try {
         const response = await fetch(`${APPS_SCRIPT_URL}?category=${encodeURIComponent(category)}`);
@@ -249,6 +280,7 @@
           itemsTextarea.value = data.join('\n');
           drawWheel();
           spinBtn.disabled = false;
+          resetBtn.disabled = false;
           statusText.innerText = `✅ Loaded ${data.length} peserta.`;
         } else {
           itemsTextarea.value = '';
@@ -275,7 +307,12 @@
       const radius = canvas.width / 2;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      if (numItems === 0) return;
+      if (numItems === 0) {
+        spinBtn.disabled = true;
+        return;
+      } else if (!isSpinning) {
+        spinBtn.disabled = false;
+      }
 
       const sliceAngle = (2 * Math.PI) / numItems;
 
@@ -310,13 +347,14 @@
     function spin() {
       if (isSpinning) return;
       items = getItems();
-      if (items.length < 2) {
-        alert('Masukkan minimal 2 peserta untuk diputar!');
+      if (items.length < 1) {
+        alert('Tidak ada peserta tersisa di roda!');
         return;
       }
 
       isSpinning = true;
       spinBtn.disabled = true;
+      resetBtn.disabled = true;
       categorySelect.disabled = true;
       resultDiv.style.display = 'none';
 
@@ -328,28 +366,48 @@
 
       setTimeout(() => {
         isSpinning = false;
-        spinBtn.disabled = false;
         categorySelect.disabled = false;
-        calculateWinner(totalRotation);
+        resetBtn.disabled = false;
+        calculateWinnerAndRemove(totalRotation);
       }, 5000);
     }
 
-    // 5. Hitung Pemenang
-    function calculateWinner(rotation) {
+    // 5. Hitung Pemenang & Hapus Nama dari Roda
+    function calculateWinnerAndRemove(rotation) {
       const numItems = items.length;
       const degreesPerSlice = 360 / numItems;
       const actualRotation = rotation % 360;
       let winnerIndex = Math.floor((360 - actualRotation + 270) % 360 / degreesPerSlice);
       
       const winner = items[winnerIndex];
-      resultDiv.innerText = `🎉 Pemenang: ${winner}`;
+      
+      // Tampilkan pemenang
+      resultDiv.innerHTML = `🎉 Selamat Kepada:<br><span class="winner-name">${winner}</span>`;
       resultDiv.style.display = 'block';
+
+      // Hapus nama pemenang dari daftar
+      items.splice(winnerIndex, 1);
+      itemsTextarea.value = items.join('\n');
+
+      // Redraw roda tanpa nama pemenang
+      drawWheel();
+
+      if (items.length === 0) {
+        statusText.innerText = '⚠️ Semua peserta kategori ini sudah terpilih!';
+      } else {
+        statusText.innerText = `Sisa peserta: ${items.length} orang.`;
+      }
     }
 
     // Event Listeners
     categorySelect.addEventListener('change', (e) => loadCategoryItems(e.target.value));
     itemsTextarea.addEventListener('input', drawWheel);
     spinBtn.addEventListener('click', spin);
+    resetBtn.addEventListener('click', () => {
+      if (confirm(`Apakah Anda yakin ingin mereset daftar nama untuk kategori "${currentCategory}" kembali utuh dari Google Sheets?`)) {
+        loadCategoryItems(currentCategory);
+      }
+    });
 
     // Inisialisasi awal
     loadCategories();
