@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roda Pengundian Kategori</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1e1e2f, #2d2b55);
+      color: #fff;
+      padding: 20px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+      font-size: 1.8rem;
+      text-align: center;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 30px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(10px);
+      max-width: 900px;
+      width: 100%;
+    }
+
+    @media (min-width: 768px) {
+      .container {
+        flex-direction: row;
+        align-items: flex-start;
+      }
+    }
+
+    .wheel-container {
+      position: relative;
+      width: 320px;
+      height: 320px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* Jarum Penunjuk */
+    .pointer {
+      position: absolute;
+      top: -15px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 15px solid transparent;
+      border-right: 15px solid transparent;
+      border-top: 25px solid #ff4757;
+      z-index: 10;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+    }
+
+    canvas {
+      border-radius: 50%;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+      transition: transform 5s cubic-bezier(0.15, 0.99, 0.18, 1);
+    }
+
+    .controls {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    label {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: #2d2b55;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: #70a1ff;
+    }
+
+    textarea {
+      width: 100%;
+      height: 110px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.2);
+      color: #fff;
+      resize: vertical;
+      font-size: 0.95rem;
+    }
+
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-spin {
+      background-color: #2ed573;
+      color: #1e1e2f;
+    }
+
+    .btn-spin:hover {
+      background-color: #26af5f;
+    }
+
+    button:disabled {
+      background-color: #57606f !important;
+      color: #a4b0be !important;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .status-text {
+      font-size: 0.85rem;
+      color: #70a1ff;
+    }
+
+    .result-popup {
+      margin-top: 10px;
+      padding: 15px;
+      background: rgba(46, 213, 115, 0.2);
+      border: 1px solid #2ed573;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 1.2rem;
+      font-weight: bold;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Aplikasi Roda Pengundian Kategori</h1>
+
+  <div class="container">
+    <div class="wheel-container">
+      <div class="pointer"></div>
+      <canvas id="wheel" width="320" height="320"></canvas>
+    </div>
+
+    <div class="controls">
+      <label for="categorySelect">Pilih Kategori Kategori:</label>
+      <select id="categorySelect">
+        <option value="">-- Memuat Kategori... --</option>
+      </select>
+      <span id="statusText" class="status-text"></span>
+
+      <label for="itemsTextarea">Daftar Peserta (Otomatis terisi):</label>
+      <textarea id="itemsTextarea" placeholder="Pilih kategori di atas untuk memuat daftar peserta..."></textarea>
+
+      <button id="spinBtn" class="btn-spin" disabled>Putar Roda!</button>
+
+      <div id="result" class="result-popup"></div>
+    </div>
+  </div>
+
+  <script>
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby8RwRohIo6l9DMTK2USmXrz1vuBEbQY_HYUOY9uLgVqWUs1Choye0bqJJMN-u7PjgKBA/exec';
+
+    const canvas = document.getElementById('wheel');
+    const ctx = canvas.getContext('2d');
+    const categorySelect = document.getElementById('categorySelect');
+    const itemsTextarea = document.getElementById('itemsTextarea');
+    const spinBtn = document.getElementById('spinBtn');
+    const statusText = document.getElementById('statusText');
+    const resultDiv = document.getElementById('result');
+
+    const colors = ['#ff4757', '#ffa502', '#2ed573', '#1e90ff', '#3742fa', '#70a1ff', '#eccc68', '#ff6348'];
+    
+    let items = [];
+    let currentRotation = 0;
+    let isSpinning = false;
+
+    // 1. Muat Daftar Kategori (Tab) saat aplikasi dibuka
+    async function loadCategories() {
+      statusText.innerText = '⏳ Mengambil daftar kategori...';
+      try {
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=getCategories`);
+        const categories = await response.json();
+
+        categorySelect.innerHTML = '<option value="">-- Pilih Kategori --</option>';
+        categories.forEach(cat => {
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.innerText = cat;
+          categorySelect.appendChild(opt);
+        });
+        statusText.innerText = '✅ Kategori berhasil dimuat.';
+      } catch (err) {
+        console.error(err);
+        statusText.innerText = '❌ Gagal memuat kategori.';
+      }
+    }
+
+    // 2. Muat Nama Peserta saat Kategori Dipilih
+    async function loadCategoryItems(category) {
+      if (!category) {
+        itemsTextarea.value = '';
+        drawWheel();
+        spinBtn.disabled = true;
+        return;
+      }
+
+      statusText.innerText = `⏳ Memuat peserta kategori "${category}"...`;
+      spinBtn.disabled = true;
+
+      try {
+        const response = await fetch(`${APPS_SCRIPT_URL}?category=${encodeURIComponent(category)}`);
+        const data = await response.json();
+
+        if (Array.isArray(data) && data.length > 0) {
+          itemsTextarea.value = data.join('\n');
+          drawWheel();
+          spinBtn.disabled = false;
+          statusText.innerText = `✅ Loaded ${data.length} peserta.`;
+        } else {
+          itemsTextarea.value = '';
+          drawWheel();
+          statusText.innerText = '⚠️ Kategori ini tidak memiliki peserta.';
+        }
+      } catch (err) {
+        console.error(err);
+        statusText.innerText = '❌ Gagal memuat data peserta.';
+      }
+    }
+
+    function getItems() {
+      return itemsTextarea.value
+        .split('\n')
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+    }
+
+    // 3. Gambar Roda
+    function drawWheel() {
+      items = getItems();
+      const numItems = items.length;
+      const radius = canvas.width / 2;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (numItems === 0) return;
+
+      const sliceAngle = (2 * Math.PI) / numItems;
+
+      items.forEach((item, index) => {
+        const startAngle = index * sliceAngle;
+        const endAngle = startAngle + sliceAngle;
+
+        ctx.beginPath();
+        ctx.moveTo(radius, radius);
+        ctx.arc(radius, radius, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(radius, radius);
+        ctx.rotate(startAngle + sliceAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px Segoe UI';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 4;
+        ctx.fillText(item, radius - 20, 5);
+        ctx.restore();
+      });
+    }
+
+    // 4. Putar Roda
+    function spin() {
+      if (isSpinning) return;
+      items = getItems();
+      if (items.length < 2) {
+        alert('Masukkan minimal 2 peserta untuk diputar!');
+        return;
+      }
+
+      isSpinning = true;
+      spinBtn.disabled = true;
+      categorySelect.disabled = true;
+      resultDiv.style.display = 'none';
+
+      const additionalDegrees = Math.floor(Math.random() * 360);
+      const totalRotation = currentRotation + (360 * 5) + additionalDegrees;
+      currentRotation = totalRotation;
+
+      canvas.style.transform = `rotate(${totalRotation}deg)`;
+
+      setTimeout(() => {
+        isSpinning = false;
+        spinBtn.disabled = false;
+        categorySelect.disabled = false;
+        calculateWinner(totalRotation);
+      }, 5000);
+    }
+
+    // 5. Hitung Pemenang
+    function calculateWinner(rotation) {
+      const numItems = items.length;
+      const degreesPerSlice = 360 / numItems;
+      const actualRotation = rotation % 360;
+      let winnerIndex = Math.floor((360 - actualRotation + 270) % 360 / degreesPerSlice);
+      
+      const winner = items[winnerIndex];
+      resultDiv.innerText = `🎉 Pemenang: ${winner}`;
+      resultDiv.style.display = 'block';
+    }
+
+    // Event Listeners
+    categorySelect.addEventListener('change', (e) => loadCategoryItems(e.target.value));
+    itemsTextarea.addEventListener('input', drawWheel);
+    spinBtn.addEventListener('click', spin);
+
+    // Inisialisasi awal
+    loadCategories();
+  </script>
+</body>
+</html>
