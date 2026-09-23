@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Roda Pengundian Apresiasi GTK</title>
+  <title>Roda Undian Apresiasi GTK</title>
   <style>
     * {
       box-sizing: border-box;
@@ -76,7 +76,6 @@
     canvas {
       border-radius: 50%;
       box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-      transition: transform 5s cubic-bezier(0.15, 0.99, 0.18, 1);
     }
 
     .controls {
@@ -189,7 +188,7 @@
 </head>
 <body>
 
-  <h1>Aplikasi Roda Pengundian Apresiasi GTK 2026 Kabupaten Blitar</h1>
+  <h1>Aplikasi Roda Pengundian Apresiasi GTK Kabupaten Blitar Tahun 2026</h1>
 
   <div class="container">
     <div class="wheel-container">
@@ -234,6 +233,48 @@
     let currentRotation = 0;
     let isSpinning = false;
     let currentCategory = '';
+    let audioCtx = null;
+
+    // Inisialisasi Audio Context
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    // Suara Tik saat Roda Berputar
+    function playTickSound() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.05);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.05);
+    }
+
+    // Suara Selebrasi Pemenang
+    function playFanfareSound() {
+      if (!audioCtx) return;
+      const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5
+      notes.forEach((freq, index) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + index * 0.1);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime + index * 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + index * 0.1 + 0.3);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + index * 0.1);
+        osc.stop(audioCtx.currentTime + index * 0.1 + 0.3);
+      });
+    }
 
     // 1. Muat Kategori
     async function loadCategories() {
@@ -261,7 +302,7 @@
       if (!category) {
         itemsTextarea.value = '';
         currentCategory = '';
-        drawWheel();
+        drawWheel(0);
         spinBtn.disabled = true;
         resetBtn.disabled = true;
         return;
@@ -278,13 +319,13 @@
 
         if (Array.isArray(data) && data.length > 0) {
           itemsTextarea.value = data.join('\n');
-          drawWheel();
+          drawWheel(currentRotation);
           spinBtn.disabled = false;
           resetBtn.disabled = false;
           statusText.innerText = `✅ Loaded ${data.length} peserta.`;
         } else {
           itemsTextarea.value = '';
-          drawWheel();
+          drawWheel(0);
           statusText.innerText = '⚠️ Kategori ini tidak memiliki peserta.';
         }
       } catch (err) {
@@ -300,8 +341,8 @@
         .filter(item => item.length > 0);
     }
 
-    // 3. Gambar Roda
-    function drawWheel() {
+    // 3. Gambar Roda Sesuai Sudut Putaran
+    function drawWheel(rotationDeg = 0) {
       items = getItems();
       const numItems = items.length;
       const radius = canvas.width / 2;
@@ -315,9 +356,10 @@
       }
 
       const sliceAngle = (2 * Math.PI) / numItems;
+      const rotationRad = (rotationDeg * Math.PI) / 180;
 
       items.forEach((item, index) => {
-        const startAngle = index * sliceAngle;
+        const startAngle = index * sliceAngle + rotationRad;
         const endAngle = startAngle + sliceAngle;
 
         ctx.beginPath();
@@ -343,9 +385,10 @@
       });
     }
 
-    // 4. Putar Roda
+    // 4. Putar Roda dengan Animasi JS & Efek Suara Tik
     function spin() {
       if (isSpinning) return;
+      initAudio();
       items = getItems();
       if (items.length < 1) {
         alert('Tidak ada peserta tersisa di roda!');
@@ -358,21 +401,47 @@
       categorySelect.disabled = true;
       resultDiv.style.display = 'none';
 
-      const additionalDegrees = Math.floor(Math.random() * 360);
-      const totalRotation = currentRotation + (360 * 5) + additionalDegrees;
-      currentRotation = totalRotation;
+      const totalSpinDeg = (360 * 5) + Math.floor(Math.random() * 360);
+      const startDeg = currentRotation;
+      const targetDeg = startDeg + totalSpinDeg;
+      const duration = 5000; // 5 detik
+      const startTime = performance.now();
 
-      canvas.style.transform = `rotate(${totalRotation}deg)`;
+      let lastSliceIndex = -1;
+      const numItems = items.length;
+      const degreesPerSlice = 360 / numItems;
 
-      setTimeout(() => {
-        isSpinning = false;
-        categorySelect.disabled = false;
-        resetBtn.disabled = false;
-        calculateWinnerAndRemove(totalRotation);
-      }, 5000);
+      function animateWheel(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Ease Out Cubic
+        const easeOutProgress = 1 - Math.pow(1 - progress, 3);
+        
+        currentRotation = startDeg + (totalSpinDeg * easeOutProgress);
+        drawWheel(currentRotation);
+
+        // Cek perpindahan sektor untuk efek suara tik
+        const currentSliceIndex = Math.floor((360 - (currentRotation % 360) + 270) % 360 / degreesPerSlice);
+        if (currentSliceIndex !== lastSliceIndex) {
+          playTickSound();
+          lastSliceIndex = currentSliceIndex;
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(animateWheel);
+        } else {
+          isSpinning = false;
+          categorySelect.disabled = false;
+          resetBtn.disabled = false;
+          calculateWinnerAndRemove(currentRotation);
+        }
+      }
+
+      requestAnimationFrame(animateWheel);
     }
 
-    // 5. Hitung Pemenang & Hapus Nama dari Roda
+    // 5. Hitung Pemenang, Suara Selebrasi, & Hapus Nama dari Roda
     function calculateWinnerAndRemove(rotation) {
       const numItems = items.length;
       const degreesPerSlice = 360 / numItems;
@@ -381,6 +450,9 @@
       
       const winner = items[winnerIndex];
       
+      // Bunyikan nada selebrasi pemenang
+      playFanfareSound();
+
       // Tampilkan pemenang
       resultDiv.innerHTML = `🎉 Selamat Kepada:<br><span class="winner-name">${winner}</span>`;
       resultDiv.style.display = 'block';
@@ -390,7 +462,7 @@
       itemsTextarea.value = items.join('\n');
 
       // Redraw roda tanpa nama pemenang
-      drawWheel();
+      drawWheel(rotation);
 
       if (items.length === 0) {
         statusText.innerText = '⚠️ Semua peserta kategori ini sudah terpilih!';
@@ -401,7 +473,7 @@
 
     // Event Listeners
     categorySelect.addEventListener('change', (e) => loadCategoryItems(e.target.value));
-    itemsTextarea.addEventListener('input', drawWheel);
+    itemsTextarea.addEventListener('input', () => drawWheel(currentRotation));
     spinBtn.addEventListener('click', spin);
     resetBtn.addEventListener('click', () => {
       if (confirm(`Apakah Anda yakin ingin mereset daftar nama untuk kategori "${currentCategory}" kembali utuh dari Google Sheets?`)) {
